@@ -1,122 +1,109 @@
+import 'dart:developer';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:googleapis_auth/googleapis_auth.dart';
+import 'package:provider/provider.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+import 'src/adaptive_login.dart';
+import 'src/adaptive_playlists.dart'; // Add this import
+import 'src/app_state.dart';
+import 'src/playlist_details.dart';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+// From https://www.youtube.com/channel/UCwXdFgeE9KYzlDdR7TG9cMw
+const flutterDevAccountId = 'UCwXdFgeE9KYzlDdR7TG9cMw';
 
-  // This widget is the root of your application.
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const ResizeablePage(),
-    );
-  }
-}
+const youTubeApiKey =
+    String.fromEnvironment('GOOGLE_APIS_KEY', defaultValue: 'google_apis_key');
+// From https://developers.google.com/youtube/v3/guides/auth/installed-apps#identify-access-scopes
 
-class ResizeablePage extends StatelessWidget {
-  const ResizeablePage({super.key});
+final scopes = [
+  'https://www.googleapis.com/auth/youtube.readonly',
+];
 
-  @override
-  Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final themePlatform = Theme.of(context).platform;
+final clientId = ClientId(
+  'TODO-Client-ID.apps.googleusercontent.com',
+  'TODO-Client-secret',
+);
 
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Window properties',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: 350,
-              child: Table(
-                textBaseline: TextBaseline.alphabetic,
-                children: <TableRow>[
-                  _fillTableRow(
-                    context: context,
-                    property: 'Window Size',
-                    value:
-                        '${mediaQuery.size.width.toStringAsFixed(1)} x ${mediaQuery.size.height.toStringAsFixed(1)}',
-                  ),
-                  _fillTableRow(
-                    context: context,
-                    property: 'Device Pixel Ratio',
-                    value: mediaQuery.devicePixelRatio.toStringAsFixed(2),
-                  ),
-                  _fillTableRow(
-                    context: context,
-                    property: 'Platform.isXXX',
-                    value: platformDescription(),
-                  ),
-                  _fillTableRow(
-                    context: context,
-                    property: 'Theme.of(ctx).platform',
-                    value: themePlatform.toString(),
-                  )
-                ],
+final _router = GoRouter(
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/',
+      builder: (context, state) {
+        return const AdaptivePlaylists();
+      },
+      redirect: (context, state) {
+        if (!context.read<AuthedUserPlaylists>().isLoggedIn) {
+          return '/login';
+        } else {
+          return null;
+        }
+      },
+      routes: <RouteBase>[
+        GoRoute(
+          path: 'login',
+          builder: (context, state) {
+            return AdaptiveLogin(
+              clientId: clientId,
+              scopes: scopes,
+              loginButtonChild: const Text('Login to YouTube'),
+            );
+          },
+        ),
+        GoRoute(
+          path: 'playlist/:id',
+          builder: (context, state) {
+            final title = state.uri.queryParameters['title']!;
+            final id = state.pathParameters['id']!;
+            return Scaffold(
+              // Modify from here
+              appBar: AppBar(title: Text(title)),
+              body: PlaylistDetails(
+                playlistId: id,
+                playlistName: title,
               ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  TableRow _fillTableRow(
-      {required BuildContext context,
-      required String property,
-      required String value}) {
-    return TableRow(
-      children: [
-        TableCell(
-          verticalAlignment: TableCellVerticalAlignment.baseline,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(property),
-          ),
-        ),
-        TableCell(
-          verticalAlignment: TableCellVerticalAlignment.baseline,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(value),
-          ),
+            );
+          },
         ),
       ],
-    );
+    ),
+  ],
+);
+
+void main() {
+  if (youTubeApiKey == 'AIzaNotAnApiKey') {
+    print('youTubeApiKey has not been configured.');
+    exit(1);
   }
 
-  String platformDescription() {
-    if (kIsWeb) {
-      return 'Web';
-    } else if (Platform.isAndroid) {
-      return 'Android';
-    } else if (Platform.isIOS) {
-      return 'iOS';
-    } else if (Platform.isWindows) {
-      return 'Windows';
-    } else if (Platform.isMacOS) {
-      return 'macOS';
-    } else if (Platform.isLinux) {
-      return 'Linux';
-    } else if (Platform.isFuchsia) {
-      return 'Fuchsia';
-    } else {
-      return 'Unknown';
-    }
+  runApp(ChangeNotifierProvider<AuthedUserPlaylists>(
+    create: (context) => AuthedUserPlaylists(),
+    child: const PlaylistsApp(),
+  ));
+}
+
+class PlaylistsApp extends StatelessWidget {
+  const PlaylistsApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    log('api key:${youTubeApiKey}');
+    return MaterialApp.router(
+      title: 'Your Playlists',
+      theme: FlexColorScheme.light(
+        scheme: FlexScheme.red,
+        useMaterial3: true,
+      ).toTheme,
+      darkTheme: FlexColorScheme.dark(
+        scheme: FlexScheme.red,
+        useMaterial3: true,
+      ).toTheme,
+      themeMode: ThemeMode.system, // Or ThemeMode.System if you'd prefer
+      debugShowCheckedModeBanner: false,
+      routerConfig: _router,
+    );
   }
 }
